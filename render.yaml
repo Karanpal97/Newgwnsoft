@@ -1,0 +1,30 @@
+# Render Web Service — FastAPI
+services:
+  - type: web
+    name: dataflow-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        sync: false          # Set in Render dashboard
+      - key: RABBITMQ_URL
+        sync: false          # Set in Render dashboard (CloudAMQP URL)
+      - key: DATA_DIR
+        value: /opt/render/project/src/data
+
+  # Render Background Worker — Celery
+  - type: worker
+    name: dataflow-celery-worker
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: celery -A tasks worker --loglevel=info --concurrency=1
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: RABBITMQ_URL
+        sync: false
+      - key: DATA_DIR
+        value: /opt/render/project/src/data
