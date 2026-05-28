@@ -33,16 +33,16 @@ export function StatusBadge({ status }: { status: JobStatus }) {
 }
 
 export function ApproachBadge({ approach }: { approach: Approach }) {
-  const isCelery = approach === "celery";
+  const isThread = approach === "thread_pool";
   return (
     <span style={{
       display:"inline-flex", alignItems:"center", gap:5,
       padding:"3px 10px", borderRadius:99, fontSize:12, fontWeight:600,
-      background: isCelery ? "rgba(139,92,246,0.12)" : "rgba(59,130,246,0.12)",
-      border:     isCelery ? "1px solid rgba(139,92,246,0.35)" : "1px solid rgba(59,130,246,0.35)",
-      color:      isCelery ? "#a78bfa" : "#60a5fa",
+      background: isThread ? "rgba(139,92,246,0.12)" : "rgba(59,130,246,0.12)",
+      border:     isThread ? "1px solid rgba(139,92,246,0.35)" : "1px solid rgba(59,130,246,0.35)",
+      color:      isThread ? "#a78bfa" : "#60a5fa",
     }}>
-      {isCelery ? "⚙ Celery + RabbitMQ" : "⚡ BackgroundTasks"}
+      {isThread ? "🧵 ThreadPoolExecutor" : "⚡ BackgroundTasks"}
     </span>
   );
 }

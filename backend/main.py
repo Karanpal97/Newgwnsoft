@@ -1,21 +1,22 @@
 """
 FastAPI Application
 ====================
-Exposes two approaches for triggering the out-of-core join:
+Exposes TWO approaches for triggering the out-of-core join:
 
-  POST /api/trigger-join
-      Body: { "approach": "background_task" | "celery" }
-      Returns: { "job_id": "...", "message": "..." }
+  Approach 1 — FastAPI BackgroundTasks (same-process coroutine callback)
+  Approach 2 — ThreadPoolExecutor     (true OS thread, parallel to server)
 
-  GET  /api/job/{job_id}         → job status + logs
-  GET  /api/jobs                 → list all jobs
-  GET  /api/results/{job_id}     → first 100 rows of result.csv
-  GET  /api/health               → health check
+  POST /api/trigger-join   body: { "approach": "background_task" | "thread_pool" }
+  GET  /api/job/{job_id}   → job status + logs
+  GET  /api/jobs           → list all jobs
+  GET  /api/results/{id}   → first 100 rows of result.csv
+  GET  /api/health         → health check
+  GET  /api/approaches     → pros/cons of both approaches
 """
 
-import asyncio
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -66,8 +67,12 @@ app.add_middleware(
 
 # ---- Pydantic schemas -------------------------------------------------------
 
+# Shared thread pool for Approach 2 — max 4 concurrent join jobs
+_thread_pool = ThreadPoolExecutor(max_workers=4)
+
+
 class TriggerRequest(BaseModel):
-    approach: str = "background_task"   # "background_task" | "celery"
+    approach: str = "background_task"   # "background_task" | "thread_pool"
 
 
 class JobResponse(BaseModel):
@@ -152,29 +157,67 @@ def _background_join(job_id: str):
 
 
 # ============================================================================
-# APPROACH 2 — Celery + RabbitMQ (CloudAMQP)
+# APPROACH 2 — ThreadPoolExecutor (true OS thread, parallel to web server)
 # ============================================================================
 
-def _celery_dispatch(job_id: str):
+def _thread_pool_join(job_id: str):
     """
-    Dispatches the join task to a Celery worker via RabbitMQ.
+    Submits the join to a shared ThreadPoolExecutor — runs in a real OS thread,
+    fully parallel to the web server's request handling.
+
+    Key difference from BackgroundTasks:
+      BackgroundTasks runs AFTER the response is sent, still inside the same
+      async event loop call stack. ThreadPoolExecutor runs in a SEPARATE OS
+      thread immediately, independent of the event loop.
 
     PROS:
-      - Fully decoupled from the web server — server stays responsive
-      - Tasks survive server restarts (queue persists in RabbitMQ)
-      - Built-in retry logic (max_retries=2 configured in tasks.py)
-      - Horizontally scalable: spawn more workers without touching API code
-      - Task status visible via Flower monitoring dashboard
+      - True parallelism — web server stays responsive even during CPU work
+      - No external services needed (no broker, no worker process)
+      - Supports up to N concurrent jobs (max_workers=4 configured above)
+      - Works on every free hosting platform (Render, Railway, Fly.io, etc.)
+      - Jobs can be cancelled via Future.cancel() if needed
 
     CONS:
-      - Requires external broker (RabbitMQ / CloudAMQP)
-      - Separate worker process must be deployed (Render Background Worker)
-      - Slight cold-start delay when free-tier worker spins up
-      - More complex local development setup
+      - Still in-process — if server restarts, running jobs are lost
+      - Shares the same memory and CPU as the web server
+      - No built-in retry logic (must be implemented manually)
+      - Not horizontally scalable across multiple machines
+      - Thread count limited by max_workers to avoid resource exhaustion
     """
-    from tasks import run_join_task  # import only when needed
-    run_join_task.delay(job_id)
-    logger.info(f"[Celery] Job {job_id} dispatched to RabbitMQ queue.")
+    db = SessionLocal()
+    try:
+        logger.info(f"[ThreadPool] Job {job_id} started in thread.")
+        append_log(db, job_id, "ThreadPoolExecutor worker started. Running join in OS thread...")
+        update_job(db, job_id, status="running")
+
+        def _progress(phase: str):
+            append_log(db, job_id, f"Phase: {phase}")
+
+        stats = run_join(
+            users_path=DATA_DIR / "users.csv",
+            transactions_path=DATA_DIR / "transactions.csv",
+            progress_cb=_progress,
+        )
+
+        update_job(
+            db, job_id,
+            status="success",
+            rows_joined=stats["rows_joined"],
+            duration_sec=int(stats["duration_seconds"]),
+        )
+        append_log(
+            db, job_id,
+            f"✅ Join complete! {stats['rows_joined']:,} rows in {stats['duration_seconds']}s. "
+            f"Result written to {stats['result_path']}"
+        )
+        logger.info(f"[ThreadPool] Job {job_id} succeeded.")
+
+    except Exception as exc:
+        logger.exception(f"[ThreadPool] Job {job_id} failed: {exc}")
+        append_log(db, job_id, f"❌ Error: {exc}")
+        update_job(db, job_id, status="failed", error_message=str(exc))
+    finally:
+        db.close()
 
 
 # ============================================================================
@@ -192,8 +235,8 @@ def trigger_join(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    if req.approach not in ("background_task", "celery"):
-        raise HTTPException(400, "approach must be 'background_task' or 'celery'")
+    if req.approach not in ("background_task", "thread_pool"):
+        raise HTTPException(400, "approach must be 'background_task' or 'thread_pool'")
 
     job = create_job(db, approach=req.approach)
     append_log(db, job.id, f"Job created. Approach: {req.approach}")
@@ -202,12 +245,8 @@ def trigger_join(
         background_tasks.add_task(_background_join, job.id)
         message = "Job queued via FastAPI BackgroundTasks."
     else:
-        try:
-            _celery_dispatch(job.id)
-            message = "Job dispatched to Celery worker via RabbitMQ."
-        except Exception as exc:
-            update_job(db, job.id, status="failed", error_message=str(exc))
-            raise HTTPException(503, f"Celery broker unavailable: {exc}")
+        _thread_pool.submit(_thread_pool_join, job.id)
+        message = "Job submitted to ThreadPoolExecutor (OS thread)."
 
     return {
         "job_id": job.id,
@@ -279,24 +318,24 @@ def get_approaches():
                 "best_for": "Development, low-traffic, simple deployments",
             },
             {
-                "id": "celery",
-                "name": "Celery + RabbitMQ (CloudAMQP)",
-                "description": "Dispatches the join to a dedicated Celery worker via RabbitMQ message queue on CloudAMQP.",
+                "id": "thread_pool",
+                "name": "ThreadPoolExecutor",
+                "description": "Submits the join to a shared OS-level thread pool. Runs truly parallel to the web server — not inside the async event loop like BackgroundTasks.",
                 "pros": [
-                    "Fully decoupled from the web server",
-                    "Tasks survive server restarts (queue is persistent)",
-                    "Built-in retry logic (configurable)",
-                    "Horizontally scalable — add more workers easily",
-                    "Monitorable via Flower dashboard",
+                    "True OS thread — parallel to web server's event loop",
+                    "No external services needed (no broker, no queue)",
+                    "Handles up to N concurrent jobs (configurable max_workers)",
+                    "Works on all free hosting platforms",
+                    "Immediate execution — not deferred like BackgroundTasks",
                 ],
                 "cons": [
-                    "Requires external broker (CloudAMQP / RabbitMQ)",
-                    "Separate worker process must be deployed",
-                    "Free-tier Render worker has cold start delay",
-                    "More complex local development setup",
-                    "CloudAMQP free tier has message limits",
+                    "Still in-process — job lost if server restarts",
+                    "Shares CPU and memory with the web server",
+                    "No built-in retry logic",
+                    "Cannot scale across multiple machines",
+                    "Thread count capped by max_workers to prevent exhaustion",
                 ],
-                "best_for": "Production, high concurrency, fault-tolerant systems",
+                "best_for": "Multi-user APIs on single-server deployments",
             },
         ]
     }

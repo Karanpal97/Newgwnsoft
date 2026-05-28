@@ -1,7 +1,7 @@
 // Shared types across the frontend
 
 export type JobStatus = "pending" | "running" | "success" | "failed";
-export type Approach = "background_task" | "celery";
+export type Approach = "background_task" | "thread_pool";
 
 export interface Job {
   id: string;

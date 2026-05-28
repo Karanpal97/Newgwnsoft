@@ -357,9 +357,9 @@ export default function HomePage() {
 
             {/* Approach selector */}
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:20 }}>
-              {(["background_task","celery"] as Approach[]).map((ap) => {
+              {(["background_task","thread_pool"] as Approach[]).map((ap) => {
                 const isSel   = selected === ap;
-                const accent  = ap === "celery" ? "#8b5cf6" : "#3b82f6";
+                const accent  = ap === "thread_pool" ? "#8b5cf6" : "#3b82f6";
                 return (
                   <button
                     key={ap}
@@ -383,13 +383,13 @@ export default function HomePage() {
                         {isSel && <div style={{ width:6, height:6, borderRadius:"50%", background:"white" }}/>}
                       </div>
                       <span style={{ fontSize:13, fontWeight:600, color: isSel ? accent : "#94a3b8" }}>
-                        {ap === "background_task" ? "⚡ FastAPI BackgroundTasks" : "⚙ Celery + RabbitMQ"}
+                        {ap === "background_task" ? "⚡ FastAPI BackgroundTasks" : "🧵 ThreadPoolExecutor"}
                       </span>
                     </div>
                     <p style={{ fontSize:12, color:"#475569", paddingLeft:24, lineHeight:1.6 }}>
                       {ap === "background_task"
-                        ? "Built-in, zero-config. Runs in the same server process."
-                        : "Distributed queue via CloudAMQP. Fully decoupled worker."}
+                        ? "Built-in, zero-config. Runs after response, in the async event loop."
+                        : "True OS thread via ThreadPoolExecutor. Runs immediately, parallel to the server."}
                     </p>
                   </button>
                 );
@@ -442,9 +442,9 @@ export default function HomePage() {
           {/* Info pills */}
           <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))", gap:12, marginBottom:36 }}>
             {[
-              { e:"🔀", t:"Hash Partition Join",  d:"64 buckets — only one pair loaded per pass. RAM stays ~30 MB." },
-              { e:"📦", t:"50k Rows / Chunk",     d:"Streams CSVs in chunks — full file never in memory at once." },
-              { e:"🗄",  t:"RabbitMQ via CloudAMQP", d:"Free Lemur plan brokers Celery tasks to Render Worker." },
+              { e:"🔀", t:"Hash Partition Join",    d:"64 buckets — only one pair loaded per pass. RAM stays ~30 MB." },
+              { e:"📦", t:"50k Rows / Chunk",       d:"Streams CSVs in chunks — full file never in memory at once." },
+              { e:"🧵", t:"ThreadPoolExecutor",     d:"Approach 2: true OS thread pool, parallel to the web server, no broker needed." },
             ].map(item => (
               <div key={item.t} style={{
                 background:"#111827", border:"1px solid #1e2d4a",
