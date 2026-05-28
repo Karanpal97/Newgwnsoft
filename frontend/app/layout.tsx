@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "DataFlow — Scalable Join Engine",
-  description: "Out-of-core data join API with real-time job tracking. Compares FastAPI BackgroundTasks vs Celery + RabbitMQ approaches.",
+  description: "Out-of-core data join API with real-time job tracking. Compares FastAPI BackgroundTasks vs ThreadPoolExecutor approaches.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

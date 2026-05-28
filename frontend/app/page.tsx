@@ -501,7 +501,7 @@ export default function HomePage() {
           textAlign:"center", padding:"24px", color:"#334155", fontSize:12,
           borderTop:"1px solid #1e2d4a",
         }}>
-          Built for Data Engineering Assignment · FastAPI + Celery + RabbitMQ + Next.js 16
+          Built for Data Engineering Assignment · FastAPI + ThreadPoolExecutor + Next.js 16
         </div>
       </div>
 
@@ -593,7 +593,7 @@ function JobDetailModal({ job, onBack }: { job: Job; onBack: ()=>void }) {
               { label:"Status",      value: job.status.toUpperCase(), color: statColor },
               { label:"Rows Joined", value: job.rows_joined != null ? job.rows_joined.toLocaleString() : "—", color:"#3b82f6" },
               { label:"Duration",    value: job.duration_sec != null ? `${job.duration_sec}s` : "—", color:"#8b5cf6" },
-              { label:"Approach",    value: job.approach === "celery" ? "Celery" : "BgTask", color: job.approach === "celery" ? "#8b5cf6" : "#3b82f6" },
+              { label:"Approach",    value: job.approach === "thread_pool" ? "ThreadPool" : "BgTask", color: job.approach === "thread_pool" ? "#8b5cf6" : "#3b82f6" },
             ].map(s => (
               <div key={s.label} style={{
                 background:"#111827", border:"1px solid #1e2d4a",
